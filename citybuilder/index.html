@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stonebrook — a tiny city builder</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="hud">
+    <div id="title">🏰 STONEBROOK</div>
+    <div id="res"></div>
+    <div id="timebar">
+      <span id="hClock">☀</span>
+      <span id="hDay">Day 1</span>
+      <span id="speeds"></span>
+      <button id="muteBtn" class="tbtn" title="Toggle sound">🔊</button>
+      <button id="newBtn" class="tbtn" title="Start a new town">New Town</button>
+    </div>
+  </header>
+  <main id="viewport">
+    <canvas id="game"></canvas>
+  </main>
+  <footer id="shopwrap">
+    <div id="shop"></div>
+    <div id="hints">Click a building, then click the map to place it &nbsp;·&nbsp; Esc cancel &nbsp;·&nbsp; X demolish &nbsp;·&nbsp; Space pause &nbsp;·&nbsp; 1/2/3 speed</div>
+  </footer>
+  <div id="tooltip"></div>
+  <div id="toasts"></div>
+  <script src="game.js"></script>
+</body>
+</html>
