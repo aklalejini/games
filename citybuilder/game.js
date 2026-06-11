@@ -1104,7 +1104,7 @@ function frame(now) {
   saveTimer -= rdt;
   if (saveTimer <= 0) { save(); saveTimer = 10; }
   pushSceneState();
-  R3.frame(state.tod);
+  R3.frame(state.tod, rdt);
   requestAnimationFrame(frame);
 }
 
