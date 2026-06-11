@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Stonebrook — a tiny 3D city builder</title>
+<title>Stonebrook (2D classic) — a tiny city builder</title>
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="classic2d">
   <header id="hud">
     <div id="title">🏰 STONEBROOK</div>
     <div id="res"></div>
@@ -14,23 +14,19 @@
       <span id="hClock">☀</span>
       <span id="hDay">Day 1</span>
       <span id="speeds"></span>
-      <button id="musicBtn" class="tbtn" title="Toggle music">🎵</button>
-      <button id="muteBtn" class="tbtn" title="Toggle sound effects">🔊</button>
+      <button id="muteBtn" class="tbtn" title="Toggle sound">🔊</button>
       <button id="newBtn" class="tbtn" title="Start a new town">New Town</button>
     </div>
   </header>
   <main id="viewport">
-    <div id="floats"></div>
+    <canvas id="game"></canvas>
   </main>
   <footer id="shopwrap">
     <div id="shop"></div>
-    <div id="hints">Click a card, then the map, to build &nbsp;·&nbsp; Scroll: zoom &nbsp;·&nbsp; Right-drag: rotate &nbsp;·&nbsp; Middle-drag: pan &nbsp;·&nbsp; Esc cancel &nbsp;·&nbsp; X demolish &nbsp;·&nbsp; Space pause</div>
+    <div id="hints">Click a building, then click the map to place it &nbsp;·&nbsp; Esc cancel &nbsp;·&nbsp; X demolish &nbsp;·&nbsp; Space pause &nbsp;·&nbsp; 1/2/3 speed</div>
   </footer>
   <div id="tooltip"></div>
   <div id="toasts"></div>
-  <script src="lib/three.min.js"></script>
-  <script src="music.js"></script>
-  <script src="render3d.js"></script>
-  <script src="game.js"></script>
+  <script src="game2d.js"></script>
 </body>
 </html>

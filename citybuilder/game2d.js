@@ -447,8 +447,8 @@ function buildSprites() {
 const T_GROUND = 0, T_GRASS = 1, T_TREE = 2, T_ROCK = 3, T_PATH = 4;
 let state = null;
 let occ = [];          // grid of building refs (or null), rebuilt from state.buildings
-let floats = [];       // floating production texts (DOM-overlay based)
-let ICON_URLS = {};
+let terrainLayer = null, terrainCtx = null;
+let floats = [];       // floating production texts
 let mode = 'idle';     // 'idle' | 'place' | 'demolish'
 let selected = null;   // building type being placed
 let hover = { x: -1, y: -1 };
@@ -665,18 +665,8 @@ function demolishAt(tx, ty) {
 
 // ---------- economy ----------
 function addFloat(x, y, txt, res) {
-  const el = document.createElement('div');
-  el.className = 'float';
-  if (res) {
-    const img = document.createElement('img');
-    img.src = ICON_URLS[res];
-    el.appendChild(img);
-    el.style.color = RES_COLORS[res];
-  }
-  el.appendChild(document.createTextNode(txt));
-  $('floats').appendChild(el);
-  floats.push({ fx: x / TILE, fy: y / TILE, el, age: 0 });
-  if (floats.length > 40) floats.shift().el.remove();
+  floats.push({ x, y, txt, res, age: 0 });
+  if (floats.length > 60) floats.shift();
 }
 function produce(b, def, starving) {
   const d = DEFS[b.type];
@@ -734,7 +724,7 @@ function stallFloat(b, def, msg, sdt) {
   b.stallT = (b.stallT || 0) + sdt;
   if (b.stallT >= 4) {
     b.stallT = 0;
-    addFloat((b.x + def.w / 2) * TILE, b.y * TILE + 2, msg, null);
+    floats.push({ x: (b.x + def.w / 2) * TILE, y: b.y * TILE + 2, txt: msg, res: null, age: 0 });
   }
 }
 function checkMilestones() {
@@ -779,10 +769,7 @@ function saveSoon() { saveTimer = Math.min(saveTimer, 0.5); }
 
 // ---------- sound ----------
 let actx = null, muted = false;
-function ensureAudio() {
-  if (!actx) try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { }
-  if (actx) Music.start(actx);
-}
+function ensureAudio() { if (!actx) try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } }
 function beep(freq, dur = 0.08, type = 'square', gain = 0.035, delay = 0) {
   if (muted || !actx) return;
   const t0 = actx.currentTime + delay;
@@ -798,12 +785,23 @@ function sSell() { beep(740, 0.05, 'triangle'); beep(988, 0.09, 'triangle', 0.03
 function sError() { beep(110, 0.16, 'sawtooth', 0.04); }
 function sClick() { beep(520, 0.04, 'triangle', 0.025); }
 
-// ---------- terrain layer (delegates to the 3D renderer) ----------
-function buildTerrainLayer() { R3.rebuildTerrain(); }
+// ---------- terrain layer ----------
+function buildTerrainLayer() {
+  if (!terrainLayer) { [terrainLayer, terrainCtx] = mkc(W, H); }
+  const g = terrainCtx;
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    const t = state.terrain[y][x], h = hash2(x, y);
+    if (t === T_GROUND) g.drawImage(SPR.ground[h % SPR.ground.length], x * TILE, y * TILE);
+    else if (t === T_PATH) g.drawImage(SPR.path, x * TILE, y * TILE);
+    else g.drawImage(SPR.grass[h % SPR.grass.length], x * TILE, y * TILE);
+    if (t === T_TREE) g.drawImage(SPR.tree[h % SPR.tree.length], x * TILE, y * TILE);
+    else if (t === T_ROCK) g.drawImage(SPR.rock[h % SPR.rock.length], x * TILE, y * TILE);
+  }
+}
 
 // ---------- DOM / UI ----------
 const $ = id => document.getElementById(id);
-let canvas, tooltip;
+let canvas, ctx, tooltip;
 const hudCache = {};
 
 function setHud(id, val) {
@@ -966,12 +964,6 @@ function buildTimeControls() {
     $('muteBtn').textContent = muted ? '🔇' : '🔊';
     try { localStorage.setItem('stonebrook-muted', muted ? '1' : '0'); } catch (e) { }
   };
-  $('musicBtn').onclick = () => {
-    ensureAudio();
-    const on = !Music.isEnabled();
-    Music.setEnabled(on);
-    $('musicBtn').classList.toggle('off', !on);
-  };
   $('newBtn').onclick = () => {
     if (confirm('Start a brand new town? Your current town will be lost.')) {
       try { localStorage.removeItem(SAVE_KEY); } catch (e) { }
@@ -986,10 +978,15 @@ function setSpeed(sp) {
 }
 
 // ---------- input ----------
+function tileFromEvent(e) {
+  const r = canvas.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / r.width * COLS);
+  const y = Math.floor((e.clientY - r.top) / r.height * ROWS);
+  return { x, y };
+}
 function bindInput() {
   canvas.addEventListener('mousemove', e => {
-    if (R3.isDragging()) { hideTip(); return; } // rotating/panning the camera
-    hover = R3.pick(e.clientX, e.clientY) || { x: -1, y: -1 };
+    hover = tileFromEvent(e);
     if (painting && selected === 'path' && hover.x >= 0) {
       if (canPlace('path', hover.x, hover.y) && state.terrain[hover.y][hover.x] !== T_PATH) {
         placeBuilding('path', hover.x, hover.y);
@@ -1017,9 +1014,7 @@ function bindInput() {
   canvas.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
     ensureAudio();
-    const t = R3.pick(e.clientX, e.clientY);
-    if (!t) return;
-    const { x, y } = t;
+    const { x, y } = tileFromEvent(e);
     if (mode === 'place' && selected) {
       const def = DEFS[selected];
       if (selected === 'path') {
@@ -1036,10 +1031,7 @@ function bindInput() {
     }
   });
   addEventListener('mouseup', () => { painting = false; });
-  canvas.addEventListener('contextmenu', e => {
-    e.preventDefault();
-    if (!R3.wasDragging()) setMode('idle'); // right-drag = rotate, plain right-click = cancel
-  });
+  canvas.addEventListener('contextmenu', e => { e.preventDefault(); setMode('idle'); });
   addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT') return;
     if (e.code === 'Space') { e.preventDefault(); setSpeed(state.speed === 0 ? lastSpeed : 0); }
@@ -1048,46 +1040,92 @@ function bindInput() {
     else if (e.key === '2') setSpeed(2);
     else if (e.key === '3') setSpeed(4);
     else if (e.key === '4') setSpeed(0.5);
-    else if (e.key === '+' || e.key === '=') R3.zoomBy(1.2);
-    else if (e.key === '-' || e.key === '_') R3.zoomBy(1 / 1.2);
     else if (e.key.toLowerCase() === 'x') setMode(mode === 'demolish' ? 'idle' : 'demolish');
   });
-  addEventListener('resize', () => R3.onResize());
+  addEventListener('resize', fit);
+}
+function fit() {
+  const vp = $('viewport');
+  const aw = vp.clientWidth - 8, ah = vp.clientHeight - 8;
+  let s = Math.min(aw / W, ah / H);
+  if (s >= 3) s = Math.floor(s);
+  else if (s >= 1) s = Math.floor(s * 4) / 4; // quarter steps keep pixels mostly even
+  else s = Math.max(0.5, s);
+  canvas.style.width = (W * s) + 'px';
+  canvas.style.height = (H * s) + 'px';
 }
 
-// ---------- render glue (3D) ----------
-function pushSceneState() {
-  const inBounds = hover.x >= 0 && hover.x < COLS && hover.y >= 0 && hover.y < ROWS;
-  if (mode === 'place' && selected && inBounds) {
-    R3.setPreview(selected, hover.x, hover.y, canPlace(selected, hover.x, hover.y));
-  } else R3.setPreview(null);
-  let demoRect = null;
-  if (mode === 'demolish' && inBounds) {
-    const b = occ[hover.y][hover.x];
-    if (b) { const d = DEFS[b.type]; demoRect = { x: b.x, y: b.y, w: d.w, h: d.h }; }
-    else {
-      const t = state.terrain[hover.y][hover.x];
-      if (t === T_TREE || t === T_ROCK || t === T_PATH) demoRect = { x: hover.x, y: hover.y, w: 1, h: 1 };
+// ---------- render ----------
+function render(now) {
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(terrainLayer, 0, 0);
+  // buildings (sorted so southern sprites draw last)
+  const sorted = state.buildings.slice().sort((a, b) => (a.y + DEFS[a.type].h) - (b.y + DEFS[b.type].h));
+  for (const b of sorted) ctx.drawImage(SPR.b[b.type], b.x * TILE, b.y * TILE);
+  // placement preview
+  if (mode === 'place' && selected && hover.x >= 0) {
+    const def = DEFS[selected];
+    const ok = canPlace(selected, hover.x, hover.y);
+    for (let y = hover.y; y < hover.y + def.h; y++) for (let x = hover.x; x < hover.x + def.w; x++) {
+      if (x < 0 || y < 0 || x >= COLS || y >= ROWS) continue;
+      ctx.fillStyle = ok ? 'rgba(110,220,90,0.35)' : 'rgba(220,70,50,0.40)';
+      ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+    }
+    const spr = selected === 'path' ? SPR.path : SPR.b[selected];
+    if (spr && hover.x + def.w <= COLS && hover.y + def.h <= ROWS) {
+      ctx.globalAlpha = 0.65;
+      ctx.drawImage(spr, hover.x * TILE, hover.y * TILE);
+      ctx.globalAlpha = 1;
     }
   }
-  R3.setDemolishHover(demoRect);
-  let outRect = null;
-  if (mode === 'idle' && inBounds) {
+  // demolish highlight
+  if (mode === 'demolish' && hover.x >= 0 && hover.x < COLS && hover.y >= 0 && hover.y < ROWS) {
     const b = occ[hover.y][hover.x];
-    if (b) { const d = DEFS[b.type]; outRect = { x: b.x, y: b.y, w: d.w, h: d.h }; }
+    ctx.fillStyle = 'rgba(220,60,40,0.4)';
+    if (b) {
+      const d = DEFS[b.type];
+      ctx.fillRect(b.x * TILE, b.y * TILE, d.w * TILE, d.h * TILE);
+    } else {
+      const t = state.terrain[hover.y][hover.x];
+      if (t === T_TREE || t === T_ROCK || t === T_PATH) ctx.fillRect(hover.x * TILE, hover.y * TILE, TILE, TILE);
+    }
   }
-  R3.setHoverOutline(outRect);
-  R3.syncBuildings();
-}
-function updateFloats(rdt) {
+  // hover outline when idle
+  if (mode === 'idle' && hover.x >= 0 && hover.x < COLS && hover.y >= 0 && hover.y < ROWS) {
+    const b = occ[hover.y][hover.x];
+    if (b) {
+      const d = DEFS[b.type];
+      ctx.strokeStyle = 'rgba(255,245,210,0.8)';
+      ctx.strokeRect(b.x * TILE + 0.5, b.y * TILE + 0.5, d.w * TILE - 1, d.h * TILE - 1);
+    }
+  }
+  // floating texts
+  ctx.font = 'bold 8px monospace';
+  ctx.textAlign = 'center';
   for (const f of floats) {
-    f.age += rdt;
-    if (f.age >= 1.4) { f.el.remove(); continue; }
-    const p = R3.projectTile(f.fx, f.fy, 1.1);
-    f.el.style.opacity = p.behind ? 0 : Math.max(0, 1 - f.age / 1.4);
-    f.el.style.transform = `translate(${p.x}px,${p.y - f.age * 30}px) translate(-50%,-100%)`;
+    const a = 1 - f.age / 1.4;
+    ctx.globalAlpha = Math.max(0, a);
+    const y = f.y - f.age * 12;
+    ctx.fillStyle = '#1a120a';
+    ctx.fillText(f.txt, f.x + 1, y + 1);
+    ctx.fillStyle = f.res ? RES_COLORS[f.res] : '#d8c8a8';
+    ctx.fillText(f.txt, f.x, y);
+    if (f.res) ctx.drawImage(SPR.icons[f.res], f.x + ctx.measureText(f.txt).width / 2 + 1, y - 8, 8, 8);
   }
-  floats = floats.filter(f => f.age < 1.4);
+  ctx.globalAlpha = 1;
+  // day/night tint
+  const t = state.tod;
+  const bright = 0.5 - 0.5 * Math.cos(2 * Math.PI * t); // 0 = midnight, 1 = noon
+  const night = (1 - bright) * 0.45;
+  if (night > 0.02) {
+    ctx.fillStyle = `rgba(18,26,64,${night.toFixed(3)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  const dusk = Math.max(0, 1 - Math.abs(t - 0.80) * 14) + Math.max(0, 1 - Math.abs(t - 0.22) * 14);
+  if (dusk > 0.02) {
+    ctx.fillStyle = `rgba(225,120,50,${(dusk * 0.10).toFixed(3)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
 }
 
 // ---------- main loop ----------
@@ -1097,40 +1135,34 @@ function frame(now) {
   last = now;
   const sdt = rdt * state.speed;
   if (sdt > 0) tickEconomy(sdt);
-  updateFloats(rdt);
+  for (const f of floats) f.age += rdt;
+  floats = floats.filter(f => f.age < 1.4);
   checkMilestones();
   updateHud();
   refreshShop();
   saveTimer -= rdt;
   if (saveTimer <= 0) { save(); saveTimer = 10; }
-  pushSceneState();
-  R3.frame(state.tod);
+  render(now / 1000);
   requestAnimationFrame(frame);
 }
 
 // ---------- boot ----------
 function init() {
+  canvas = $('game');
+  canvas.width = W; canvas.height = H;
+  ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
   tooltip = $('tooltip');
   buildSprites();
-  for (const k in SPR.icons) ICON_URLS[k] = SPR.icons[k].toDataURL();
-  try {
-    R3.init($('viewport'));
-  } catch (e) {
-    document.body.innerHTML = '<p style="padding:3em;text-align:center">This device does not support WebGL.<br>' +
-      'Try the <a href="2d.html" style="color:#f3cd4e">classic 2D version</a> instead.</p>';
-    return;
-  }
-  canvas = R3.dom;
   if (!load()) newGame();
   try { muted = localStorage.getItem('stonebrook-muted') === '1'; } catch (e) { }
   $('muteBtn').textContent = muted ? '🔇' : '🔊';
-  $('musicBtn').classList.toggle('off', !Music.loadPref());
   buildHud();
   buildShop();
   buildTimeControls();
   setSpeed(state.speed ?? 1);
   bindInput();
-  document.addEventListener('pointerdown', () => ensureAudio(), { once: true });
+  fit();
   saveTimer = 10;
   requestAnimationFrame(t => { last = t; requestAnimationFrame(frame); });
 }
