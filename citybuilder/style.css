@@ -87,6 +87,15 @@ body {
     radial-gradient(ellipse at center, rgba(255, 220, 150, 0.05), transparent 70%),
     var(--bg);
 }
+#viewport::after {
+  /* soft painterly vignette over the 3D view */
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(12, 16, 28, 0.18) 85%, rgba(8, 10, 20, 0.4) 100%);
+}
 #floats {
   position: absolute;
   inset: 0;
